@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: nail_bot_instance
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./nail_bot.db:/app/nail_bot.db
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
