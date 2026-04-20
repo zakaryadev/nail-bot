@@ -12,7 +12,7 @@ services:
 
     # Persist SQLite database outside the container
     volumes:
-      - db_data:/data
+      - db_data:/app/database
 
     # Structured JSON logs with rotation
     logging:
