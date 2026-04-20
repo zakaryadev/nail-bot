@@ -39,6 +39,13 @@ async def init_db():
                 value TEXT
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS admins (
+                id INTEGER PRIMARY KEY,
+                added_by INTEGER,
+                added_at TEXT NOT NULL
+            )
+        ''')
         
         # Migration: add language column if it doesn't exist
         try:
@@ -93,6 +100,34 @@ async def set_user_language(user_id: int, language: str):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE users SET language = ? WHERE id = ?", (language, user_id))
         await db.commit()
+
+# --- Функции для работы с администраторами ---
+async def add_admin(user_id: int, added_by: int):
+    """Добавляет нового администратора."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO admins (id, added_by, added_at) VALUES (?, ?, ?)",
+            (user_id, added_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        await db.commit()
+
+async def remove_admin(user_id: int):
+    """Удаляет администратора."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("DELETE FROM admins WHERE id = ?", (user_id,))
+        await db.commit()
+
+async def get_admins() -> list[int]:
+    """Возвращает список ID всех администраторов."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT id FROM admins")
+        return [row[0] for row in await cursor.fetchall()]
+
+async def is_admin(user_id: int) -> bool:
+    """Проверяет, является ли пользователь администратором."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT id FROM admins WHERE id = ?", (user_id,))
+        return await cursor.fetchone() is not None
 
 # --- Функции для работы с расписанием ---
 async def add_schedule_slots(slots: list[tuple[str, str]]):
@@ -209,3 +244,14 @@ async def get_all_active_appointments() -> list[tuple]:
             JOIN schedule s ON a.schedule_id = s.id
         ''')
         return await cursor.fetchall()
+
+async def get_appointment_details(appointment_id: int) -> tuple | None:
+    """Возвращает подробную информацию о записи (id, user_id, date, time)."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute('''
+            SELECT a.id, a.user_id, s.date, s.time
+            FROM appointments a
+            JOIN schedule s ON a.schedule_id = s.id
+            WHERE a.id = ?
+        ''', (appointment_id,))
+        return await cursor.fetchone()

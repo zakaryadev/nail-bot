@@ -2,9 +2,14 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 from datetime import date, datetime, timedelta
 import calendar as py_calendar
+import re
 
 from database import crud
 from utils.locales import _t
+
+def strip_html(text: str) -> str:
+    """Удаляет HTML-теги из строки."""
+    return re.sub(r'<[^>]*>', '', text)
 
 def language_menu():
     builder = InlineKeyboardBuilder()
@@ -129,12 +134,35 @@ def cancel_appointment_kb(appointment_id: int, lang='ru'):
     builder.adjust(1)
     return builder.as_markup()
 
-def admin_menu(lang='ru'):
+def admin_menu(user_id: int, lang='ru'):
     builder = InlineKeyboardBuilder()
     builder.button(text=_t(lang, 'btn_admin_add_slots'), callback_data="add_slots")
     builder.button(text=_t(lang, 'btn_admin_delete_slots'), callback_data="delete_slots")
     builder.button(text=_t(lang, 'btn_admin_view_schedule'), callback_data="view_schedule")
     builder.button(text=_t(lang, 'btn_admin_settings'), callback_data="bot_settings")
+    
+    # Только для главного администратора
+    from config import settings
+    if user_id == settings.ADMIN_ID:
+        builder.button(text=_t(lang, 'btn_admin_manage_admins'), callback_data="manage_admins")
+        
+    builder.adjust(1)
+    return builder.as_markup()
+
+def admin_manage_admins_kb(lang='ru'):
+    builder = InlineKeyboardBuilder()
+    builder.button(text=_t(lang, 'btn_admin_add_admin'), callback_data="add_admin")
+    builder.button(text=_t(lang, 'btn_admin_remove_admin'), callback_data="remove_admin")
+    builder.button(text=_t(lang, 'btn_admin_back'), callback_data="admin_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+async def admin_remove_admins_kb(admin_ids: list[int], lang='ru'):
+    builder = InlineKeyboardBuilder()
+    for admin_id in admin_ids:
+        # Можно добавить получение имени из БД, но пока просто ID
+        builder.button(text=f"❌ {admin_id}", callback_data=f"del_admin:{admin_id}")
+    builder.button(text=_t(lang, 'btn_admin_back'), callback_data="manage_admins")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -221,18 +249,28 @@ def admin_calendar(year: int, month: int, lang='ru'):
     builder.row(back_to_admin_menu_kb(lang).inline_keyboard[0][0])
     return builder.as_markup()
 
-def admin_delete_slots_kb(slots: list[tuple[int, str]], lang='ru', date=''):
+    builder.row(back_to_admin_menu_kb(lang).inline_keyboard[0][0])
+    return builder.as_markup()
+
+def admin_schedule_kb(schedule_data: list, lang='ru', date=''):
+    """Клавиатура для просмотра расписания с возможностью отмены записей."""
     builder = InlineKeyboardBuilder()
     
-    # Кнопки со слотами
-    for slot_id, time in slots:
-        builder.button(text=f"🗑 {time}", callback_data=f"del_slot:{slot_id}")
-    
-    builder.adjust(3)
-    
-    # Кнопка очистки дня, если есть слоты
-    if slots:
-        builder.row(InlineKeyboardButton(text=_t(lang, 'btn_admin_clear_day'), callback_data=f"clear_day:{date}"))
-        
+    for time_val, is_booked, name, phone, app_id in schedule_data:
+        if is_booked:
+            label = _t(lang, 'admin_slot_booked', time=time_val, name=name, phone='').split('(')[0].strip()
+            builder.button(text=strip_html(label), callback_data=f"confirm_cancel:{app_id}")
+        else:
+            label = _t(lang, 'admin_slot_free', time=time_val)
+            builder.button(text=strip_html(label), callback_data="ignore")
+            
+    builder.adjust(2)
     builder.row(back_to_admin_menu_kb(lang).inline_keyboard[0][0])
+    return builder.as_markup()
+
+def admin_confirm_cancel_kb(app_id: int, lang='ru'):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Да, отменить", callback_data=f"admin_cancel_app:{app_id}")
+    builder.button(text="❌ Нет, оставить", callback_data="admin_menu")
+    builder.adjust(2)
     return builder.as_markup()

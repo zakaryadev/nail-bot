@@ -9,7 +9,10 @@ from database import crud
 class AdminFilter(Filter):
     """Фильтр для проверки, является ли пользователь администратором."""
     async def __call__(self, message: Message) -> bool:
-        return message.from_user.id == settings.ADMIN_ID
+        user_id = message.from_user.id
+        if user_id == settings.ADMIN_ID:
+            return True
+        return await crud.is_admin(user_id)
 
 
 class ChatMemberFilter(Filter):

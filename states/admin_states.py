@@ -11,3 +11,6 @@ class AdminSettings(StatesGroup):
     entering_portfolio = State()
     entering_channel_id = State()
     entering_channel_link = State()
+
+class AdminManagement(StatesGroup):
+    adding_admin = State()

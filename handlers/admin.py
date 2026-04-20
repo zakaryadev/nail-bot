@@ -12,7 +12,7 @@ from database import crud
 from keyboards import builders
 from utils.filters import AdminFilter
 from utils.locales import _t
-from states.admin_states import AdminSchedule, AdminSettings
+from states.admin_states import AdminSchedule, AdminSettings, AdminManagement
 
 router = Router()
 router.message.filter(AdminFilter())
@@ -22,14 +22,14 @@ async def admin_panel(message: Message, state: FSMContext):
     """Отображает админ-панель."""
     await state.clear()
     lang = await crud.get_user_language(message.from_user.id)
-    await message.answer(_t(lang, 'admin_welcome'), reply_markup=builders.admin_menu(lang))
+    await message.answer(_t(lang, 'admin_welcome'), reply_markup=builders.admin_menu(message.from_user.id, lang))
 
 @router.callback_query(F.data == "admin_menu")
 async def back_to_admin_menu(callback: CallbackQuery, state: FSMContext):
     """Возврат в главное меню администратора."""
     await state.clear()
     lang = await crud.get_user_language(callback.from_user.id)
-    await callback.message.edit_text(_t(lang, 'admin_panel_title'), reply_markup=builders.admin_menu(lang))
+    await callback.message.edit_text(_t(lang, 'admin_panel_title'), reply_markup=builders.admin_menu(callback.from_user.id, lang))
 
 # === НАСТРОЙКИ БОТА ===
 
@@ -54,7 +54,7 @@ async def process_new_price(message: Message, state: FSMContext):
     await crud.set_setting("price_text", message.text)
     await state.clear()
     lang = await crud.get_user_language(message.from_user.id)
-    await message.answer(_t(lang, 'admin_price_updated'), reply_markup=builders.admin_settings_menu(lang))
+    await message.answer(_t(lang, 'admin_price_updated'), reply_markup=builders.admin_menu(message.from_user.id, lang))
 
 @router.callback_query(F.data == "edit_portfolio")
 async def edit_portfolio_handler(callback: CallbackQuery, state: FSMContext):
@@ -169,7 +169,7 @@ async def process_admin_calendar(callback: CallbackQuery, state: FSMContext):
             today_str = selected_date.strftime("%Y-%m-%d")
             async with crud.aiosqlite.connect(crud.DB_NAME) as db:
                 cursor = await db.execute("""
-                    SELECT s.time, s.is_booked, u.name, u.phone
+                    SELECT s.time, s.is_booked, u.name, u.phone, a.id
                     FROM schedule s
                     LEFT JOIN appointments a ON s.id = a.schedule_id
                     LEFT JOIN users u ON a.user_id = u.id
@@ -180,10 +180,11 @@ async def process_admin_calendar(callback: CallbackQuery, state: FSMContext):
 
             if not schedule_data:
                 text = _t(lang, 'admin_schedule_empty', date=today_str)
+                await callback.message.edit_text(text, reply_markup=builders.back_to_admin_menu_kb(lang))
             else:
                 header = _t(lang, 'admin_schedule_header', date=today_str)
                 schedule_lines = []
-                for time_val, is_booked, name, phone in schedule_data:
+                for time_val, is_booked, name, phone, app_id in schedule_data:
                     if is_booked:
                         schedule_lines.append(_t(lang, 'admin_slot_booked', time=time_val, name=name, phone=phone))
                     else:
@@ -191,9 +192,13 @@ async def process_admin_calendar(callback: CallbackQuery, state: FSMContext):
                 
                 body = os.linesep.join(schedule_lines)
                 text = header + os.linesep + os.linesep + body
-            
+                
+                # Используем клавиатуру для возможности отмены
+                await callback.message.edit_text(
+                    text, 
+                    reply_markup=builders.admin_schedule_kb(schedule_data, lang, today_str)
+                )
             await state.clear()
-            await callback.message.edit_text(text, reply_markup=builders.back_to_admin_menu_kb(lang))
             
         elif current_state == AdminSchedule.choosing_date_for_delete.state:
             # Показываем список свободных слотов для удаления
@@ -244,7 +249,7 @@ async def process_slots_input(message: Message, state: FSMContext):
     added_slots_str = ", ".join(unique_times)
     await message.answer(
         _t(lang, 'admin_slots_added', count=len(slots_to_add), date=selected_date, slots=added_slots_str),
-        reply_markup=builders.admin_menu(lang)
+        reply_markup=builders.admin_menu(message.from_user.id, lang)
     )
 
 @router.callback_query(F.data.startswith("del_slot:"))
@@ -294,3 +299,133 @@ async def process_clear_day(callback: CallbackQuery):
         text,
         reply_markup=builders.admin_delete_slots_kb([], lang, date_str)
     )
+
+# === УПРАВЛЕНИЕ АДМИНАМИ ===
+
+@router.callback_query(F.data == "manage_admins")
+async def manage_admins_handler(callback: CallbackQuery):
+    """Отображает меню управления администраторами."""
+    if callback.from_user.id != settings.ADMIN_ID:
+        await callback.answer("У вас нет прав для доступа к этому меню.", show_alert=True)
+        return
+        
+    lang = await crud.get_user_language(callback.from_user.id)
+    admin_ids = await crud.get_admins()
+    
+    # Текст со списком админов
+    admin_list = "\n".join([f"• <code>{aid}</code>" for aid in admin_ids])
+    text = _t(lang, 'admin_manage_admins_title') + "\n\n" + (admin_list if admin_list else "—")
+    
+    await callback.message.edit_text(text, reply_markup=builders.admin_manage_admins_kb(lang))
+
+@router.callback_query(F.data == "add_admin")
+async def add_admin_handler(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает ID нового администратора."""
+    if callback.from_user.id != settings.ADMIN_ID: return
+    lang = await crud.get_user_language(callback.from_user.id)
+    await state.set_state(AdminManagement.adding_admin)
+    await callback.message.edit_text(_t(lang, 'admin_add_admin_prompt'), reply_markup=builders.back_to_admin_menu_kb(lang))
+
+@router.message(AdminManagement.adding_admin)
+async def process_add_admin(message: Message, state: FSMContext):
+    """Добавляет пользователя в список администраторов."""
+    if message.from_user.id != settings.ADMIN_ID: return
+    
+    lang = await crud.get_user_language(message.from_user.id)
+    
+    new_admin_id = None
+    if message.forward_from:
+        new_admin_id = message.forward_from.id
+    elif message.text and message.text.isdigit():
+        new_admin_id = int(message.text)
+        
+    if not new_admin_id:
+        await message.answer("Пожалуйста, отправьте корректный ID или перешлите сообщение пользователя.")
+        return
+        
+    await crud.add_admin(new_admin_id, message.from_user.id)
+    await state.clear()
+    await message.answer(_t(lang, 'admin_admin_added', user_id=new_admin_id), reply_markup=builders.admin_menu(message.from_user.id, lang))
+
+@router.callback_query(F.data == "remove_admin")
+async def remove_admin_handler(callback: CallbackQuery):
+    """Показывает список админов для удаления."""
+    if callback.from_user.id != settings.ADMIN_ID: return
+    lang = await crud.get_user_language(callback.from_user.id)
+    admin_ids = await crud.get_admins()
+    
+    if not admin_ids:
+        await callback.answer("Нет администраторов для удаления.", show_alert=True)
+        return
+        
+    await callback.message.edit_text(
+        _t(lang, 'admin_remove_admin_prompt'),
+        reply_markup=await builders.admin_remove_admins_kb(admin_ids, lang)
+    )
+
+@router.callback_query(F.data.startswith("del_admin:"))
+async def process_remove_admin(callback: CallbackQuery):
+    """Удаляет администратора."""
+    if callback.from_user.id != settings.ADMIN_ID: return
+    admin_id = int(callback.data.split(":")[1])
+    lang = await crud.get_user_language(callback.from_user.id)
+    
+    await crud.remove_admin(admin_id)
+    await callback.answer(_t(lang, 'admin_admin_removed', user_id=admin_id))
+    
+    # Возврат в меню управления
+    await manage_admins_handler(callback)
+
+# === ОТМЕНА ЗАПИСЕЙ АДМИНИСТРАТОРОМ ===
+
+@router.callback_query(F.data.startswith("confirm_cancel:"))
+async def confirm_cancel_handler(callback: CallbackQuery):
+    """Запрашивает подтверждение отмены записи."""
+    app_id = int(callback.data.split(":")[1])
+    lang = await crud.get_user_language(callback.from_user.id)
+    
+    app_details = await crud.get_appointment_details(app_id)
+    if not app_details:
+        await callback.answer("Запись не найдена.", show_alert=True)
+        return
+        
+    _, user_id, date_str, time_str = app_details
+    
+    # Получаем имя пользователя для подтверждения
+    async with crud.aiosqlite.connect(crud.DB_NAME) as db:
+        cursor = await db.execute("SELECT name FROM users WHERE id = ?", (user_id,))
+        row = await cursor.fetchone()
+        user_name = row[0] if row else "Клиент"
+        
+    text = _t(lang, 'admin_cancel_app_confirm', name=user_name, date=date_str, time=time_str)
+    await callback.message.edit_text(text, reply_markup=builders.admin_confirm_cancel_kb(app_id, lang))
+
+@router.callback_query(F.data.startswith("admin_cancel_app:"))
+async def process_admin_cancel_app(callback: CallbackQuery, bot: Bot):
+    """Выполняет отмену записи и уведомляет пользователя."""
+    app_id = int(callback.data.split(":")[1])
+    lang = await crud.get_user_language(callback.from_user.id)
+    
+    app_details = await crud.get_appointment_details(app_id)
+    if not app_details:
+        await callback.answer("Запись не найдена.", show_alert=True)
+        return
+        
+    _, user_id, date_str, time_str = app_details
+    
+    # 1. Отменяем в БД
+    await crud.cancel_appointment(app_id)
+    
+    # 2. Уведомляем администратора
+    await callback.answer(_t(lang, 'admin_app_canceled_success'), show_alert=True)
+    
+    # 3. Уведомляем пользователя
+    user_lang = await crud.get_user_language(user_id)
+    user_text = _t(user_lang, 'user_app_canceled_by_admin', date=date_str, time=time_str)
+    try:
+        await bot.send_message(user_id, user_text)
+    except Exception:
+        pass # Пользователь мог заблокировать бота
+        
+    # Возврат в админ-меню
+    await admin_panel(callback.message, None) # Передаем message, state=None т.к. мы просто вызываем функцию
