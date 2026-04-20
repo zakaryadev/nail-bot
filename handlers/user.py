@@ -203,6 +203,7 @@ async def process_calendar(callback: CallbackQuery, state: FSMContext):
     if action == "prev" or action == "next":
         calendar_kb = await builders.calendar(year, month, lang)
         await callback.message.edit_text(_t(lang, 'choose_date'), reply_markup=calendar_kb)
+        await callback.answer()
         return
 
     if action == "day":
@@ -220,6 +221,7 @@ async def process_calendar(callback: CallbackQuery, state: FSMContext):
         await state.set_state(Booking.choosing_time)
         text = _t(lang, 'date_selected', date=selected_date.strftime('%d.%m.%Y'))
         await callback.message.edit_text(text, reply_markup=builders.time_slots(free_slots, lang))
+        await callback.answer()
 
 @router.callback_query(Booking.choosing_time, F.data.startswith("time_"))
 async def process_time_selection(callback: CallbackQuery, state: FSMContext):

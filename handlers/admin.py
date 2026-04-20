@@ -146,6 +146,7 @@ async def process_admin_calendar(callback: CallbackQuery, state: FSMContext):
             _t(lang, 'admin_choose_date'),
             reply_markup=builders.admin_calendar(year, month, lang)
         )
+        await callback.answer()
         return
 
     if action == "day":
@@ -163,6 +164,7 @@ async def process_admin_calendar(callback: CallbackQuery, state: FSMContext):
             
             text = _t(lang, 'admin_enter_slots_prompt', date=selected_date.strftime('%d.%m.%Y'))
             await callback.message.edit_text(text, reply_markup=builders.back_to_admin_menu_kb(lang))
+            await callback.answer()
             
         elif current_state == AdminSchedule.choosing_date_for_view.state:
             # Показываем расписание на выбранный день
@@ -199,6 +201,7 @@ async def process_admin_calendar(callback: CallbackQuery, state: FSMContext):
                     reply_markup=builders.admin_schedule_kb(schedule_data, lang, today_str)
                 )
             await state.clear()
+            await callback.answer()
             
         elif current_state == AdminSchedule.choosing_date_for_delete.state:
             # Показываем список свободных слотов для удаления
@@ -214,6 +217,7 @@ async def process_admin_calendar(callback: CallbackQuery, state: FSMContext):
                 text,
                 reply_markup=builders.admin_delete_slots_kb(free_slots, lang, today_str)
             )
+            await callback.answer()
 
 @router.message(AdminSchedule.entering_slots, F.text)
 async def process_slots_input(message: Message, state: FSMContext):
