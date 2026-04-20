@@ -139,6 +139,7 @@ def admin_menu(user_id: int, lang='ru'):
     builder.button(text=_t(lang, 'btn_admin_add_slots'), callback_data="add_slots")
     builder.button(text=_t(lang, 'btn_admin_delete_slots'), callback_data="delete_slots")
     builder.button(text=_t(lang, 'btn_admin_view_schedule'), callback_data="view_schedule")
+    builder.button(text=_t(lang, 'btn_admin_cancel_app'), callback_data="admin_cancel_start")
     builder.button(text=_t(lang, 'btn_admin_settings'), callback_data="bot_settings")
     
     # Только для главного администратора

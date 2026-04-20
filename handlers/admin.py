@@ -130,6 +130,17 @@ async def delete_slots_handler(callback: CallbackQuery, state: FSMContext):
         reply_markup=builders.admin_calendar(today.year, today.month, lang)
     )
 
+@router.callback_query(F.data == "admin_cancel_start")
+async def admin_cancel_start_handler(callback: CallbackQuery, state: FSMContext):
+    """Запускает процесс отмены записи с выбора даты."""
+    await state.set_state(AdminSchedule.choosing_date_for_cancel_app)
+    today = date.today()
+    lang = await crud.get_user_language(callback.from_user.id)
+    await callback.message.edit_text(
+        _t(lang, 'admin_choose_date_view'),
+        reply_markup=builders.admin_calendar(today.year, today.month, lang)
+    )
+
 @router.callback_query(F.data.startswith("admin_cal_"))
 async def process_admin_calendar(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает нажатия на календарь администратора."""
@@ -166,7 +177,7 @@ async def process_admin_calendar(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text(text, reply_markup=builders.back_to_admin_menu_kb(lang))
             await callback.answer()
             
-        elif current_state == AdminSchedule.choosing_date_for_view.state:
+        elif current_state in [AdminSchedule.choosing_date_for_view.state, AdminSchedule.choosing_date_for_cancel_app.state]:
             # Показываем расписание на выбранный день
             today_str = selected_date.strftime("%Y-%m-%d")
             async with crud.aiosqlite.connect(crud.DB_NAME) as db:
@@ -431,5 +442,36 @@ async def process_admin_cancel_app(callback: CallbackQuery, bot: Bot):
     except Exception:
         pass # Пользователь мог заблокировать бота
         
-    # Возврат в админ-меню
-    await admin_panel(callback.message, None) # Передаем message, state=None т.к. мы просто вызываем функцию
+    # 4. Обновляем текущий вид (показываем расписание на тот же день)
+    async with crud.aiosqlite.connect(crud.DB_NAME) as db:
+        cursor = await db.execute("""
+            SELECT s.time, s.is_booked, u.name, u.phone, a.id
+            FROM schedule s
+            LEFT JOIN appointments a ON s.id = a.schedule_id
+            LEFT JOIN users u ON a.user_id = u.id
+            WHERE s.date = ?
+            ORDER BY s.time
+        """, (date_str,))
+        schedule_data = await cursor.fetchall()
+
+    if not schedule_data:
+        text = _t(lang, 'admin_schedule_empty', date=date_str)
+        await callback.message.edit_text(text, reply_markup=builders.admin_menu(callback.from_user.id, lang))
+    else:
+        header = _t(lang, 'admin_schedule_header', date=date_str)
+        schedule_lines = []
+        for t_val, is_b, u_name, u_phone, a_id in schedule_data:
+            if is_b:
+                schedule_lines.append(_t(lang, 'admin_slot_booked', time=t_val, name=u_name, phone=u_phone))
+            else:
+                schedule_lines.append(_t(lang, 'admin_slot_free', time=t_val))
+        
+        body = os.linesep.join(schedule_lines)
+        text = header + os.linesep + os.linesep + body
+        
+        await callback.message.edit_text(
+            text, 
+            reply_markup=builders.admin_schedule_kb(schedule_data, lang, date_str)
+        )
+    
+    await state.clear()
