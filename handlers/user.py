@@ -243,6 +243,8 @@ async def process_name(message: Message, state: FSMContext):
 @router.message(Booking.entering_phone, F.text)
 async def process_phone(message: Message, state: FSMContext, bot: Bot, apscheduler: AsyncIOScheduler):
     """Обработка ввода телефона и завершение записи."""
+    from bot import logger
+    
     lang = await crud.get_user_language(message.from_user.id)
     user_data = await state.get_data()
     name = user_data["name"]
@@ -250,31 +252,55 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot, apschedul
     selected_date = user_data["selected_date"]
     selected_time = user_data["selected_time"]
 
-    await crud.update_user_info(message.from_user.id, name, phone)
-    
-    result = await crud.book_slot(message.from_user.id, selected_date, selected_time)
-    if not result:
-        await message.answer(_t(lang, 'slot_taken'), reply_markup=builders.back_to_main_menu_kb(lang))
-        await state.clear()
-        return
+    # 1. Сохранение инфо пользователя и бронирование
+    try:
+        await crud.update_user_info(message.from_user.id, name, phone)
+        result = await crud.book_slot(message.from_user.id, selected_date, selected_time)
         
-    appointment_id, _ = result
-    
+        if not result:
+            await message.answer(_t(lang, 'slot_taken'), reply_markup=builders.back_to_main_menu_kb(lang))
+            await state.clear()
+            return
+            
+        appointment_id, _ = result
+    except Exception as e:
+        logger.error(f"Error booking slot: {e}")
+        await message.answer("Internal Error / Ichki xatolik. Please try again.")
+        return
+
+    # Clear state immediately after successful DB action
     await state.clear()
 
-    user_text = _t(lang, 'booking_success', name=name, date=selected_date, time=selected_time)
-    await message.answer(user_text, reply_markup=builders.main_menu(lang))
+    # 2. Уведомление пользователя (Первоочередное!)
+    try:
+        user_text = _t(lang, 'booking_success', name=name, date=selected_date, time=selected_time)
+        await message.answer(user_text, reply_markup=builders.main_menu(lang))
+    except Exception as e:
+        logger.error(f"Error sending confirmation to user: {e}")
 
-    admin_lang = await crud.get_user_language(settings.ADMIN_ID)
-    
-    admin_text = _t(admin_lang, 'admin_notif_new', name=name, phone=phone, date=selected_date, time=selected_time, user_id=message.from_user.id)
-    await bot.send_message(settings.ADMIN_ID, admin_text)
-    
-    admin_channel_text = _t(admin_lang, 'admin_notif_slot_taken', date=selected_date, time=selected_time)
-    await bot.send_message(settings.ADMIN_CHANNEL_ID, admin_channel_text)
-    
-    appointment_datetime = datetime.strptime(f"{selected_date} {selected_time}", "%Y-%m-%d %H:%M")
-    await schedule_reminder_job(apscheduler, bot, message.from_user.id, appointment_id, appointment_datetime)
+    # 3. Уведомления администраторам (Обернуты в try, чтобы не мешать пользователю)
+    try:
+        admin_lang = await crud.get_user_language(settings.ADMIN_ID)
+        
+        # Личное сообщение админу
+        admin_text = _t(admin_lang, 'admin_notif_new', 
+                       name=name, phone=phone, date=selected_date, time=selected_time, user_id=message.from_user.id)
+        await bot.send_message(settings.ADMIN_ID, admin_text)
+        
+        # Сообщение в канал
+        admin_channel_text = _t(admin_lang, 'admin_notif_slot_taken', date=selected_date, time=selected_time)
+        await bot.send_message(settings.ADMIN_CHANNEL_ID, admin_channel_text)
+    except Exception as e:
+        logger.error(f"Error notifying admin/channel: {e}")
+
+    # 4. Настройка напоминания
+    try:
+        # Пробуем распарсить время более гибко (удаляем секунды если есть)
+        clean_time = selected_time.split(':')[0] + ':' + selected_time.split(':')[1]
+        appointment_datetime = datetime.strptime(f"{selected_date} {clean_time}", "%Y-%m-%d %H:%M")
+        await schedule_reminder_job(apscheduler, bot, message.from_user.id, appointment_id, appointment_datetime)
+    except Exception as e:
+        logger.error(f"Error scheduling reminder: {e}")
 
 
 # --- Просмотр и отмена записи ---
