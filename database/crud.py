@@ -1,17 +1,19 @@
 import aiosqlite
 from datetime import date, datetime
 
-DB_NAME = "nail_bot.db"
+from config import settings
+
+DB_NAME = settings.DB_PATH
 
 async def init_db():
     """Инициализирует базу данных и создает таблицы, если их нет."""
     async with aiosqlite.connect(DB_NAME) as db:
+        # 1. Создание базовых таблиц
         await db.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
                 name TEXT,
-                phone TEXT,
-                language TEXT DEFAULT 'ru'
+                phone TEXT
             )
         ''')
         await db.execute('''
@@ -47,12 +49,28 @@ async def init_db():
             )
         ''')
         
-        # Migration: add language column if it doesn't exist
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'ru'")
-        except aiosqlite.OperationalError:
-            pass # Column already exists
+        # 2. МИГРАЦИИ (Добавление новых колонок в существующие таблицы)
+        
+        # Список необходимых колонок: (table_name, column_definition)
+        migrations = [
+            ("users", "language TEXT DEFAULT 'ru'"),
+            # Kelajakda yangi ustunlar qo'shilsa, shunchaki shu yerga yozasiz:
+            # ("users", "is_blocked INTEGER DEFAULT 0"),
+        ]
+
+        for table, column_def in migrations:
+            column_name = column_def.split()[0]
+            # Проверяем, существует ли колонка
+            cursor = await db.execute(f"PRAGMA table_info({table})")
+            columns = [row[1] for row in await cursor.fetchall()]
             
+            if column_name not in columns:
+                try:
+                    await db.execute(f"ALTER TABLE {table} ADD COLUMN {column_def}")
+                    print(f"[DB MIGRATION] Added column {column_name} to table {table}")
+                except aiosqlite.OperationalError as e:
+                    print(f"[DB MIGRATION] Error adding column {column_name}: {e}")
+
         await db.commit()
 
 async def get_setting(key: str, default: str = None) -> str:

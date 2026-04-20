@@ -1,16 +1,36 @@
-version: '3.8'
-
 services:
   bot:
-    build: .
-    container_name: nail_bot_instance
-    restart: always
+    build:
+      context: .
+      target: runtime
+    container_name: nail_bot
+    restart: unless-stopped
+
+    # Load all env vars from .env file
     env_file:
       - .env
+
+    # Persist SQLite database outside the container
     volumes:
-      - ./nail_bot.db:/app/nail_bot.db
+      - db_data:/data
+
+    # Structured JSON logs with rotation
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "5"
+        tag: "nail_bot"
+
+    # Health monitoring
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+# Named volume — survives container restarts and recreations
+volumes:
+  db_data:
+    name: nail_bot_db

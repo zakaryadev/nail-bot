@@ -2,12 +2,15 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.pyd
 venv/
 .venv/
 env/
+
+# Secrets — NEVER commit
 .env
-.agent
-docs/
+
 # Database
 *.db
 *.sqlite3
@@ -16,5 +19,12 @@ docs/
 .vscode/
 .idea/
 
-# Docker
+# Docker internal
 .dockerignore
+
+# Agent / AI tooling
+.agent/
+.gemini/
+
+# Docs (generated)
+docs/
