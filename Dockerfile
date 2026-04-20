@@ -31,8 +31,7 @@ COPY --from=builder /install /install
 # Create non-root user for security
 RUN groupadd --gid 1001 botuser && \
     useradd --uid 1001 --gid botuser --shell /bin/sh --create-home botuser && \
-    mkdir -p /data && chown botuser:botuser /data && \
-    mkdir -p /app/database && chown -R botuser:botuser /app/database
+    mkdir -p /app/data && chown botuser:botuser /app/data
 
 # Copy application code
 COPY --chown=botuser:botuser . .

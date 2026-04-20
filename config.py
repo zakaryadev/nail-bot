@@ -35,7 +35,7 @@ class Settings:
     ADMIN_CHANNEL_ID: int
 
     # SQLite DB path — use /data volume in Docker, local file otherwise
-    DB_PATH: str = os.getenv("DB_PATH", "nail_bot.db")
+    DB_PATH: str = os.getenv("DB_PATH", "data/nail_bot.db")
     MASTER_DB_PATH: str = os.getenv("MASTER_DB_PATH", "data/master.db")
     BOTS_DATA_DIR: str = os.getenv("BOTS_DATA_DIR", "data/bots")
 
