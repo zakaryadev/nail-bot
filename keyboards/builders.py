@@ -271,7 +271,19 @@ def admin_schedule_kb(schedule_data: list, lang='ru', date=''):
 
 def admin_confirm_cancel_kb(app_id: int, lang='ru'):
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Да, отменить", callback_data=f"admin_cancel_app:{app_id}")
-    builder.button(text="❌ Нет, оставить", callback_data="admin_menu")
+    builder.button(text="✅ " + _t(lang, 'btn_yes_cancel'), callback_data=f"admin_cancel_app:{app_id}")
+    builder.button(text="❌ " + _t(lang, 'btn_no_stay'), callback_data="admin_menu")
     builder.adjust(2)
+    return builder.as_markup()
+
+def admin_delete_slots_kb(slots: list[tuple[int, str]], lang='ru', date_str=''):
+    """Клавиатура для удаления свободных слотов."""
+    builder = InlineKeyboardBuilder()
+    for slot_id, time_val in slots:
+        builder.button(text=f"❌ {time_val}", callback_data=f"del_slot:{slot_id}")
+    
+    # Кнопка для очистки всего дня
+    builder.row(InlineKeyboardButton(text=_t(lang, 'btn_admin_clear_day'), callback_data=f"clear_day:{date_str}"))
+    builder.row(back_to_admin_menu_kb(lang).inline_keyboard[0][0])
+    builder.adjust(3)
     return builder.as_markup()
