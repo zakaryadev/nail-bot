@@ -8,11 +8,11 @@ from database import crud
 
 class AdminFilter(Filter):
     """Фильтр для проверки, является ли пользователь администратором."""
-    async def __call__(self, message: Message) -> bool:
+    async def __call__(self, message: Message, db_path: str = settings.DB_PATH) -> bool:
         user_id = message.from_user.id
         if user_id == settings.ADMIN_ID:
             return True
-        return await crud.is_admin(user_id)
+        return await crud.is_admin(user_id, db_path=db_path)
 
 
 class ChatMemberFilter(Filter):
@@ -22,11 +22,11 @@ class ChatMemberFilter(Filter):
     def __init__(self, chat_id: int = None):
         self.chat_id = chat_id
 
-    async def __call__(self, update: Union[Message, CallbackQuery, ChatMemberUpdated], bot: Bot) -> bool:
+    async def __call__(self, update: Union[Message, CallbackQuery, ChatMemberUpdated], bot: Bot, db_path: str = settings.DB_PATH) -> bool:
         user_id = update.from_user.id
         
         # Получаем ID канала из БД, если нет - берем из конфига
-        channel_id_str = await crud.get_setting("channel_id", str(settings.CHANNEL_ID))
+        channel_id_str = await crud.get_setting("channel_id", str(settings.CHANNEL_ID), db_path=db_path)
         try:
             target_chat_id = int(channel_id_str)
         except ValueError:

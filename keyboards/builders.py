@@ -47,7 +47,7 @@ def back_to_main_menu_kb(lang='ru'):
     builder.button(text=_t(lang, 'btn_back_menu'), callback_data="main_menu")
     return builder.as_markup()
 
-async def calendar(year: int, month: int, lang='ru'):
+async def calendar(year: int, month: int, lang='ru', db_path: str = None):
     builder = InlineKeyboardBuilder()
     
     # Названия месяцев
@@ -94,7 +94,7 @@ async def calendar(year: int, month: int, lang='ru'):
     today = date.today()
     
     # Получаем даты со свободными слотами
-    free_dates_db = await crud.get_free_dates(today)
+    free_dates_db = await crud.get_free_dates(today, db_path=db_path)
     free_dates = {datetime.strptime(d, "%Y-%m-%d").date() for d in free_dates_db}
 
     for week in cal:

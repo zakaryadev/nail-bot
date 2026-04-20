@@ -45,10 +45,10 @@ async def remove_reminder_job(scheduler: AsyncIOScheduler, job_id: str):
     except Exception as e:
         logger.error(f"Ошибка при удалении задачи {job_id}: {e}")
 
-async def restore_scheduled_jobs(scheduler: AsyncIOScheduler, bot: Bot):
+async def restore_scheduled_jobs(scheduler: AsyncIOScheduler, bot: Bot, db_path: str = None):
     """Восстанавливает задачи из БД при перезапуске бота."""
     logger.info("Начинаем восстановление задач из БД...")
-    active_appointments = await crud.get_all_active_appointments()
+    active_appointments = await crud.get_all_active_appointments(db_path=db_path) if db_path else await crud.get_all_active_appointments()
     count = 0
     for app_id, user_id, app_date, app_time in active_appointments:
         try:

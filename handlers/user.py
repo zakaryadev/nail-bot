@@ -15,22 +15,22 @@ from utils.locales import _t
 
 router = Router()
 
-async def get_channel_id() -> int:
-    channel_id_str = await crud.get_setting("channel_id", str(settings.CHANNEL_ID))
+async def get_channel_id(db_path: str) -> int:
+    channel_id_str = await crud.get_setting("channel_id", str(settings.CHANNEL_ID), db_path=db_path)
     try:
         return int(channel_id_str)
     except ValueError:
         return settings.CHANNEL_ID
 
-async def get_channel_link() -> str:
-    return await crud.get_setting("channel_link", settings.CHANNEL_LINK)
+async def get_channel_link(db_path: str) -> str:
+    return await crud.get_setting("channel_link", settings.CHANNEL_LINK, db_path=db_path)
 
 # --- Обработка команды /start и проверка подписки ---
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, bot: Bot):
+async def cmd_start(message: Message, bot: Bot, db_path: str):
     """Обработчик команды /start."""
-    user_info = await crud.get_or_create_user(message.from_user.id)
+    user_info = await crud.get_or_create_user(message.from_user.id, db_path=db_path)
     # unpack tuple based on length to be safe, but we know it returns 5 elements now
     is_new = user_info[-1]
     lang = user_info[3] if len(user_info) > 3 else 'ru'
@@ -43,8 +43,8 @@ async def cmd_start(message: Message, bot: Bot):
         )
         return
     
-    channel_id = await get_channel_id()
-    channel_link = await get_channel_link()
+    channel_id = await get_channel_id(db_path)
+    channel_link = await get_channel_link(db_path)
     
     # Проверка подписки
     try:
@@ -66,10 +66,10 @@ async def cmd_start(message: Message, bot: Bot):
         )
 
 @router.callback_query(F.data == "check_subscription")
-async def check_subscription_callback(callback: CallbackQuery, bot: Bot):
+async def check_subscription_callback(callback: CallbackQuery, bot: Bot, db_path: str):
     """Обработчик кнопки проверки подписки."""
-    channel_id = await get_channel_id()
-    channel_link = await get_channel_link()
+    channel_id = await get_channel_id(db_path)
+    channel_link = await get_channel_link(db_path)
     
     try:
         member = await bot.get_chat_member(chat_id=channel_id, user_id=callback.from_user.id)
@@ -77,7 +77,7 @@ async def check_subscription_callback(callback: CallbackQuery, bot: Bot):
     except Exception:
         is_subscribed = True
 
-    lang = await crud.get_user_language(callback.from_user.id)
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
 
     if is_subscribed:
         await callback.message.edit_text(
@@ -91,11 +91,11 @@ async def check_subscription_callback(callback: CallbackQuery, bot: Bot):
 # Блокировка сообщений от неподписанных пользователей
 @router.message(ChatMemberFilter())
 @router.callback_query(ChatMemberFilter())
-async def handle_blocked_user(update: Message | CallbackQuery):
+async def handle_blocked_user(update: Message | CallbackQuery, db_path: str):
     """Обработчик для пользователей без подписки."""
     message = update if isinstance(update, Message) else update.message
-    channel_link = await get_channel_link()
-    lang = await crud.get_user_language(message.from_user.id)
+    channel_link = await get_channel_link(db_path)
+    lang = await crud.get_user_language(message.from_user.id, db_path=db_path)
     
     await message.answer(
         _t(lang, 'subscribe_prompt'),
@@ -106,31 +106,31 @@ async def handle_blocked_user(update: Message | CallbackQuery):
 # --- Основное меню ---
 
 @router.callback_query(F.data == "main_menu")
-async def back_to_main_menu(callback: CallbackQuery):
+async def back_to_main_menu(callback: CallbackQuery, db_path: str):
     """Возврат в главное меню."""
-    lang = await crud.get_user_language(callback.from_user.id)
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
     await callback.message.edit_text(
         _t(lang, 'main_menu_title'),
         reply_markup=builders.main_menu(lang)
     )
 
 @router.callback_query(F.data == "change_lang")
-async def change_lang_menu(callback: CallbackQuery):
+async def change_lang_menu(callback: CallbackQuery, db_path: str):
     """Меню выбора языка."""
-    lang = await crud.get_user_language(callback.from_user.id)
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
     await callback.message.edit_text(
         _t(lang, 'choose_lang'),
         reply_markup=builders.language_menu()
     )
 
 @router.callback_query(F.data.startswith("lang_"))
-async def set_language(callback: CallbackQuery):
+async def set_language(callback: CallbackQuery, db_path: str):
     """Обработчик выбора языка."""
     lang = callback.data.split(":")[1]
-    await crud.set_user_language(callback.from_user.id, lang)
+    await crud.set_user_language(callback.from_user.id, lang, db_path=db_path)
     
-    channel_id = await get_channel_id()
-    channel_link = await get_channel_link()
+    channel_id = await get_channel_id(db_path)
+    channel_link = await get_channel_link(db_path)
     
     try:
         member = await callback.bot.get_chat_member(chat_id=channel_id, user_id=callback.from_user.id)
@@ -150,23 +150,23 @@ async def set_language(callback: CallbackQuery):
         )
 
 @router.callback_query(F.data == "prices")
-async def show_prices(callback: CallbackQuery):
+async def show_prices(callback: CallbackQuery, db_path: str):
     """Показывает прайс-лист."""
-    lang = await crud.get_user_language(callback.from_user.id)
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
     # The default price is stored in settings, but we might want to localize it if we didn't customize it.
     # We will use the translation for default, but if it's customized, it might be in Russian.
     default_price = _t(lang, 'price_text')
-    text = await crud.get_setting("price_text", default_price)
+    text = await crud.get_setting("price_text", default_price, db_path=db_path)
     if text == "<b>✨ Прайс-лист</b>\n\n💅 <i>Маникюр + гель-лак</i> — <b>1500₽</b>\n💅 <i>Наращивание</i> — <b>2500₽</b>\n💅 <i>Френч / Дизайн</i> — <b>+300₽</b>\n💅 <i>Снятие чужой работы</i> — <b>200₽</b>":
         text = default_price
         
     await callback.message.edit_text(text, reply_markup=builders.back_to_main_menu_kb(lang))
 
 @router.callback_query(F.data == "portfolio")
-async def show_portfolio(callback: CallbackQuery):
+async def show_portfolio(callback: CallbackQuery, db_path: str):
     """Показывает ссылку на портфолио."""
-    lang = await crud.get_user_language(callback.from_user.id)
-    portfolio_link = await crud.get_setting("portfolio_link", "https://ru.pinterest.com/crystalwithluv/_created/")
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
+    portfolio_link = await crud.get_setting("portfolio_link", "https://ru.pinterest.com/crystalwithluv/_created/", db_path=db_path)
     await callback.message.edit_text(
         _t(lang, 'portfolio_text'),
         reply_markup=builders.portfolio_menu(portfolio_link, lang)
@@ -176,23 +176,23 @@ async def show_portfolio(callback: CallbackQuery):
 # --- Процесс записи (FSM) ---
 
 @router.callback_query(F.data == "book")
-async def start_booking(callback: CallbackQuery, state: FSMContext):
+async def start_booking(callback: CallbackQuery, state: FSMContext, db_path: str):
     """Начало процесса записи. Проверка на существующую запись."""
-    lang = await crud.get_user_language(callback.from_user.id)
-    appointment = await crud.get_user_appointment(callback.from_user.id)
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
+    appointment = await crud.get_user_appointment(callback.from_user.id, db_path=db_path)
     if appointment:
         await callback.answer(_t(lang, 'already_booked'), show_alert=True)
         return
 
     await state.set_state(Booking.choosing_date)
     today = date.today()
-    calendar_kb = await builders.calendar(today.year, today.month, lang)
+    calendar_kb = await builders.calendar(today.year, today.month, lang, db_path=db_path)
     await callback.message.edit_text(_t(lang, 'choose_date'), reply_markup=calendar_kb)
 
 @router.callback_query(Booking.choosing_date, F.data.startswith("calendar_"))
-async def process_calendar(callback: CallbackQuery, state: FSMContext):
+async def process_calendar(callback: CallbackQuery, state: FSMContext, db_path: str):
     """Обработка навигации по календарю и выбора даты."""
-    lang = await crud.get_user_language(callback.from_user.id)
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
     action, year, month, day = callback.data.split(":")[1:]
     year, month, day = int(year), int(month), int(day)
     
@@ -201,7 +201,7 @@ async def process_calendar(callback: CallbackQuery, state: FSMContext):
         return
 
     if action == "prev" or action == "next":
-        calendar_kb = await builders.calendar(year, month, lang)
+        calendar_kb = await builders.calendar(year, month, lang, db_path=db_path)
         await callback.message.edit_text(_t(lang, 'choose_date'), reply_markup=calendar_kb)
         await callback.answer()
         return
@@ -212,7 +212,7 @@ async def process_calendar(callback: CallbackQuery, state: FSMContext):
             await callback.answer(_t(lang, 'past_date'), show_alert=True)
             return
         
-        free_slots = await crud.get_free_slots_for_date(selected_date.strftime("%Y-%m-%d"))
+        free_slots = await crud.get_free_slots_for_date(selected_date.strftime("%Y-%m-%d"), db_path=db_path)
         if not free_slots:
             await callback.answer(_t(lang, 'no_slots'), show_alert=True)
             return
@@ -224,28 +224,28 @@ async def process_calendar(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
 @router.callback_query(Booking.choosing_time, F.data.startswith("time_"))
-async def process_time_selection(callback: CallbackQuery, state: FSMContext):
+async def process_time_selection(callback: CallbackQuery, state: FSMContext, db_path: str):
     """Обработка выбора времени."""
-    lang = await crud.get_user_language(callback.from_user.id)
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
     selected_time = callback.data.replace("time_:", "")
     await state.update_data(selected_time=selected_time)
     await state.set_state(Booking.entering_name)
     await callback.message.edit_text(_t(lang, 'enter_name'))
 
 @router.message(Booking.entering_name, F.text)
-async def process_name(message: Message, state: FSMContext):
+async def process_name(message: Message, state: FSMContext, db_path: str):
     """Обработка ввода имени."""
-    lang = await crud.get_user_language(message.from_user.id)
+    lang = await crud.get_user_language(message.from_user.id, db_path=db_path)
     await state.update_data(name=message.text)
     await state.set_state(Booking.entering_phone)
     await message.answer(_t(lang, 'enter_phone'))
 
 @router.message(Booking.entering_phone, F.text)
-async def process_phone(message: Message, state: FSMContext, bot: Bot, apscheduler: AsyncIOScheduler):
+async def process_phone(message: Message, state: FSMContext, bot: Bot, apscheduler: AsyncIOScheduler, db_path: str):
     """Обработка ввода телефона и завершение записи."""
     from bot import logger
     
-    lang = await crud.get_user_language(message.from_user.id)
+    lang = await crud.get_user_language(message.from_user.id, db_path=db_path)
     user_data = await state.get_data()
     name = user_data["name"]
     phone = message.text
@@ -254,8 +254,8 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot, apschedul
 
     # 1. Сохранение инфо пользователя и бронирование
     try:
-        await crud.update_user_info(message.from_user.id, name, phone)
-        result = await crud.book_slot(message.from_user.id, selected_date, selected_time)
+        await crud.update_user_info(message.from_user.id, name, phone, db_path=db_path)
+        result = await crud.book_slot(message.from_user.id, selected_date, selected_time, db_path=db_path)
         
         if not result:
             await message.answer(_t(lang, 'slot_taken'), reply_markup=builders.back_to_main_menu_kb(lang))
@@ -280,7 +280,7 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot, apschedul
 
     # 3. Уведомления администраторам (Обернуты в try, чтобы не мешать пользователю)
     try:
-        admin_lang = await crud.get_user_language(settings.ADMIN_ID)
+        admin_lang = await crud.get_user_language(settings.ADMIN_ID, db_path=db_path)
         
         # Личное сообщение админу
         admin_text = _t(admin_lang, 'admin_notif_new', 
@@ -306,10 +306,10 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot, apschedul
 # --- Просмотр и отмена записи ---
 
 @router.callback_query(F.data == "my_appointment")
-async def show_my_appointment(callback: CallbackQuery):
+async def show_my_appointment(callback: CallbackQuery, db_path: str):
     """Показывает активную запись пользователя."""
-    lang = await crud.get_user_language(callback.from_user.id)
-    appointment = await crud.get_user_appointment(callback.from_user.id)
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
+    appointment = await crud.get_user_appointment(callback.from_user.id, db_path=db_path)
     if appointment:
         appointment_id, app_date, app_time = appointment
         text = _t(lang, 'my_app_info', date=app_date, time=app_time)
@@ -318,25 +318,25 @@ async def show_my_appointment(callback: CallbackQuery):
         await callback.message.edit_text(_t(lang, 'no_apps'), reply_markup=builders.back_to_main_menu_kb(lang))
 
 @router.callback_query(F.data.startswith("cancel_"))
-async def cancel_my_appointment(callback: CallbackQuery, apscheduler: AsyncIOScheduler, bot: Bot):
+async def cancel_my_appointment(callback: CallbackQuery, apscheduler: AsyncIOScheduler, bot: Bot, db_path: str):
     """Отмена записи пользователем."""
-    lang = await crud.get_user_language(callback.from_user.id)
+    lang = await crud.get_user_language(callback.from_user.id, db_path=db_path)
     appointment_id = int(callback.data.split(":")[1])
     
     app_info = "???"
-    appointment = await crud.get_user_appointment(callback.from_user.id)
+    appointment = await crud.get_user_appointment(callback.from_user.id, db_path=db_path)
     if appointment:
         _, app_date, app_time = appointment
         app_info = f"{app_date} {app_time}"
         
-    await crud.cancel_appointment(appointment_id)
+    await crud.cancel_appointment(appointment_id, db_path=db_path)
     
     await remove_reminder_job(apscheduler, f"reminder_{callback.from_user.id}_{appointment_id}")
     
     await callback.message.edit_text(_t(lang, 'app_canceled'), reply_markup=builders.back_to_main_menu_kb(lang))
     
     try:
-        admin_lang = await crud.get_user_language(settings.ADMIN_ID)
+        admin_lang = await crud.get_user_language(settings.ADMIN_ID, db_path=db_path)
         admin_notif = _t(admin_lang, 'admin_notif_canceled', date=app_date, time=app_time) if appointment else _t(admin_lang, 'admin_notif_canceled', date="???", time="???")
         await bot.send_message(settings.ADMIN_CHANNEL_ID, admin_notif)
     except Exception:

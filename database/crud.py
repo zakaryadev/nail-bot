@@ -1,13 +1,18 @@
 import aiosqlite
+import os
 from datetime import date, datetime
 
 from config import settings
 
-DB_NAME = settings.DB_PATH
-
-async def init_db():
+async def init_db(db_path: str = None):
     """Инициализирует базу данных и создает таблицы, если их нет."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    # Ensure directory exists
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
+    async with aiosqlite.connect(db_path) as db:
         # 1. Создание базовых таблиц
         await db.execute('''
             CREATE TABLE IF NOT EXISTS users (
@@ -73,25 +78,28 @@ async def init_db():
 
         await db.commit()
 
-async def get_setting(key: str, default: str = None) -> str:
+async def get_setting(key: str, default: str = None, db_path: str = None) -> str:
     """Получает настройку из БД."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
         row = await cursor.fetchone()
         if row:
             return row[0]
         return default
 
-async def set_setting(key: str, value: str):
+async def set_setting(key: str, value: str, db_path: str = None):
     """Сохраняет настройку в БД."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
         await db.commit()
 
 # --- Функции для работы с пользователями ---
-async def get_or_create_user(user_id: int, name: str = None, phone: str = None):
+async def get_or_create_user(user_id: int, name: str = None, phone: str = None, db_path: str = None):
     """Получает или создает пользователя в БД."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
         user = await cursor.fetchone()
         if not user:
@@ -100,103 +108,117 @@ async def get_or_create_user(user_id: int, name: str = None, phone: str = None):
             return user_id, name, phone, 'ru', True
         return (*user, False)
 
-async def update_user_info(user_id: int, name: str, phone: str):
+async def update_user_info(user_id: int, name: str, phone: str, db_path: str = None):
     """Обновляет имя и телефон пользователя."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         await db.execute("UPDATE users SET name = ?, phone = ? WHERE id = ?", (name, phone, user_id))
         await db.commit()
 
-async def get_user_language(user_id: int) -> str:
+async def get_user_language(user_id: int, db_path: str = None) -> str:
     """Возвращает язык пользователя."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT language FROM users WHERE id = ?", (user_id,))
         row = await cursor.fetchone()
         return row[0] if row and row[0] else 'ru'
 
-async def set_user_language(user_id: int, language: str):
+async def set_user_language(user_id: int, language: str, db_path: str = None):
     """Устанавливает язык пользователя."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         await db.execute("UPDATE users SET language = ? WHERE id = ?", (language, user_id))
         await db.commit()
 
 # --- Функции для работы с администраторами ---
-async def add_admin(user_id: int, added_by: int):
+async def add_admin(user_id: int, added_by: int, db_path: str = None):
     """Добавляет нового администратора."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         await db.execute(
             "INSERT OR IGNORE INTO admins (id, added_by, added_at) VALUES (?, ?, ?)",
             (user_id, added_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         )
         await db.commit()
 
-async def remove_admin(user_id: int):
+async def remove_admin(user_id: int, db_path: str = None):
     """Удаляет администратора."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         await db.execute("DELETE FROM admins WHERE id = ?", (user_id,))
         await db.commit()
 
-async def get_admins() -> list[int]:
+async def get_admins(db_path: str = None) -> list[int]:
     """Возвращает список ID всех администраторов."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT id FROM admins")
         return [row[0] for row in await cursor.fetchall()]
 
-async def is_admin(user_id: int) -> bool:
+async def is_admin(user_id: int, db_path: str = None) -> bool:
     """Проверяет, является ли пользователь администратором."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT id FROM admins WHERE id = ?", (user_id,))
         return await cursor.fetchone() is not None
 
 # --- Функции для работы с расписанием ---
-async def add_schedule_slots(slots: list[tuple[str, str]]):
+async def add_schedule_slots(slots: list[tuple[str, str]], db_path: str = None):
     """Добавляет временные слоты в расписание. Игнорирует дубликаты."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         await db.executemany("INSERT OR IGNORE INTO schedule (date, time) VALUES (?, ?)", slots)
         await db.commit()
 
-async def get_free_dates(start_date: date) -> list[str]:
+async def get_free_dates(start_date: date, db_path: str = None) -> list[str]:
     """Возвращает список дат с свободными слотами, начиная с указанной даты."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute(
             "SELECT DISTINCT date FROM schedule WHERE date >= ? AND is_booked = 0 ORDER BY date",
             (start_date.strftime("%Y-%m-%d"),)
         )
         return [row[0] for row in await cursor.fetchall()]
 
-async def get_free_slots_for_date(selected_date: str) -> list[str]:
+async def get_free_slots_for_date(selected_date: str, db_path: str = None) -> list[str]:
     """Возвращает свободные временные слоты для выбранной даты."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute(
             "SELECT time FROM schedule WHERE date = ? AND is_booked = 0 ORDER BY time",
             (selected_date,)
         )
         return [row[0] for row in await cursor.fetchall()]
 
-async def get_free_slots_with_ids(selected_date: str) -> list[tuple[int, str]]:
+async def get_free_slots_with_ids(selected_date: str, db_path: str = None) -> list[tuple[int, str]]:
     """Возвращает свободные слоты вместе с их ID."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute(
             "SELECT id, time FROM schedule WHERE date = ? AND is_booked = 0 ORDER BY time",
             (selected_date,)
         )
         return await cursor.fetchall()
 
-async def delete_schedule_slot(schedule_id: int):
+async def delete_schedule_slot(schedule_id: int, db_path: str = None):
     """Удаляет конкретный свободный слот."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         # Убедимся, что слот не забронирован (на всякий случай)
         await db.execute("DELETE FROM schedule WHERE id = ? AND is_booked = 0", (schedule_id,))
         await db.commit()
 
-async def delete_all_free_slots(selected_date: str):
+async def delete_all_free_slots(selected_date: str, db_path: str = None):
     """Удаляет все свободные слоты на выбранную дату."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         await db.execute("DELETE FROM schedule WHERE date = ? AND is_booked = 0", (selected_date,))
         await db.commit()
 
-async def book_slot(user_id: int, selected_date: str, selected_time: str) -> tuple[int, int] | None:
+async def book_slot(user_id: int, selected_date: str, selected_time: str, db_path: str = None) -> tuple[int, int] | None:
     """Бронирует слот и создает запись. Возвращает (appointment_id, schedule_id) или None."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         # Проверяем, есть ли у пользователя уже активная запись
         cursor = await db.execute("SELECT id FROM appointments WHERE user_id = ?", (user_id,))
         if await cursor.fetchone():
@@ -225,9 +247,10 @@ async def book_slot(user_id: int, selected_date: str, selected_time: str) -> tup
             await db.rollback()
             return None
 
-async def get_user_appointment(user_id: int) -> tuple | None:
+async def get_user_appointment(user_id: int, db_path: str = None) -> tuple | None:
     """Возвращает активную запись пользователя (id, date, time)."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute('''
             SELECT a.id, s.date, s.time
             FROM appointments a
@@ -236,9 +259,10 @@ async def get_user_appointment(user_id: int) -> tuple | None:
         ''', (user_id,))
         return await cursor.fetchone()
 
-async def cancel_appointment(appointment_id: int):
+async def cancel_appointment(appointment_id: int, db_path: str = None):
     """Отменяет запись, освобождая слот."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         await db.execute("BEGIN")
         try:
             cursor = await db.execute("SELECT schedule_id FROM appointments WHERE id = ?", (appointment_id,))
@@ -253,9 +277,10 @@ async def cancel_appointment(appointment_id: int):
         except Exception:
             await db.rollback()
 
-async def get_all_active_appointments() -> list[tuple]:
+async def get_all_active_appointments(db_path: str = None) -> list[tuple]:
     """Возвращает все активные записи для восстановления задач планировщика."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute('''
             SELECT a.id, a.user_id, s.date, s.time
             FROM appointments a
@@ -263,9 +288,10 @@ async def get_all_active_appointments() -> list[tuple]:
         ''')
         return await cursor.fetchall()
 
-async def get_appointment_details(appointment_id: int) -> tuple | None:
+async def get_appointment_details(appointment_id: int, db_path: str = None) -> tuple | None:
     """Возвращает подробную информацию о записи (id, user_id, date, time)."""
-    async with aiosqlite.connect(DB_NAME) as db:
+    db_path = db_path or settings.DB_PATH
+    async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute('''
             SELECT a.id, a.user_id, s.date, s.time
             FROM appointments a
